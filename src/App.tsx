@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Upload, Search, ShieldAlert, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { Upload, Search, ShieldAlert, CheckCircle, AlertTriangle, Loader2, Camera, X } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 
 interface AnalysisResult {
@@ -20,6 +20,68 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isReporting, setIsReporting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraActive(true);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setAnalysis(null);
+      setError(null);
+    } catch (err: any) {
+      setError('Failed to access camera: ' + err.message);
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
+            setSelectedFile(file);
+            const url = URL.createObjectURL(file);
+            setPreviewUrl(url);
+            stopCamera();
+          }
+        }, 'image/jpeg', 0.9);
+      }
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -208,30 +270,114 @@ If the logo is completely unrecognizable, provide a best guess or state that it 
                   previewUrl ? 'border-indigo-200 bg-indigo-50/50' : 'border-neutral-300 hover:border-neutral-400 bg-neutral-50'
                 }`}
               >
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
+                {!isCameraActive && (
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                )}
                 
-                {previewUrl ? (
+                {isCameraActive ? (
+                  <div className="space-y-4">
+                    <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        className="w-full h-full object-cover"
+                      />
+                      <canvas ref={canvasRef} className="hidden" />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          stopCamera();
+                        }}
+                        className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        capturePhoto();
+                      }}
+                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Camera className="w-5 h-5" />
+                      Take Photo
+                    </button>
+                  </div>
+                ) : previewUrl ? (
                   <div className="space-y-4">
                     <img
                       src={previewUrl}
                       alt="Logo preview"
                       className="max-h-48 mx-auto object-contain rounded-lg"
                     />
-                    <p className="text-sm text-neutral-500 font-medium">Click or drag to replace</p>
+                    <div className="flex gap-2 justify-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startCamera();
+                        }}
+                        className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Retake
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e: any) => handleFileSelect(e);
+                          input.click();
+                        }}
+                        className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload New
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="mx-auto w-12 h-12 bg-white rounded-full shadow-sm border border-neutral-200 flex items-center justify-center">
-                      <Upload className="w-6 h-6 text-neutral-400" />
+                  <div className="space-y-6">
+                    <div className="mx-auto w-16 h-16 bg-white rounded-full shadow-sm border border-neutral-200 flex items-center justify-center">
+                      <Camera className="w-8 h-8 text-neutral-400" />
                     </div>
                     <div>
-                      <p className="text-base font-medium text-neutral-900">Drop your image here</p>
-                      <p className="text-sm text-neutral-500 mt-1">Supports JPG, PNG, WEBP</p>
+                      <p className="text-base font-medium text-neutral-900">Scan a logo</p>
+                      <p className="text-sm text-neutral-500 mt-1">Take a photo or upload an image</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startCamera();
+                        }}
+                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Camera className="w-5 h-5" />
+                        Open Camera
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e: any) => handleFileSelect(e);
+                          input.click();
+                        }}
+                        className="px-6 py-2.5 bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Upload className="w-5 h-5" />
+                        Upload Image
+                      </button>
                     </div>
                   </div>
                 )}
