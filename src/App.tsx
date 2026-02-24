@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Upload, Search, ShieldAlert, CheckCircle, AlertTriangle, Loader2, Camera, X } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
+import emailjs from '@emailjs/browser';
 
 interface AnalysisResult {
   brandName: string;
@@ -21,6 +22,8 @@ export default function App() {
   const [isReporting, setIsReporting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -36,14 +39,19 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'environment' } 
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      
       setIsCameraActive(true);
       setSelectedFile(null);
       setPreviewUrl(null);
       setAnalysis(null);
       setError(null);
+
+      // Wait for the next tick to ensure videoRef is available after state update
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
     } catch (err: any) {
       setError('Failed to access camera: ' + err.message);
     }
@@ -188,51 +196,43 @@ If the logo is completely unrecognizable, provide a best guess or state that it 
   };
 
   const reportLogo = async () => {
-    if (!analysis || !selectedFile) return;
+    if (!analysis) return;
 
     setIsReporting(true);
     setError(null);
 
     try {
-      // Convert file to base64 for reporting
-      const reader = new FileReader();
-      reader.readAsDataURL(selectedFile);
-      
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        
-        const response = await fetch('/api/report-logo', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            analysis,
-            imageBase64: base64,
-            mimeType: selectedFile.type,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to report logo');
-        }
-
-        setReportSuccess(true);
-        setIsReporting(false);
+      const templateParams = {
+        brand_name: analysis.brandName,
+        similarity_percentage: analysis.similarityPercentage,
+        company_info: analysis.companyInfo,
+        symbolic_meaning: analysis.symbolicMeaning,
+        originality_interpretation: analysis.originalityInterpretation,
+        message: `Suspicious Logo Report:
+Brand: ${analysis.brandName}
+Similarity: ${analysis.similarityPercentage}%
+Interpretation: ${analysis.originalityInterpretation}
+Company Info: ${analysis.companyInfo}`
       };
-      
-      reader.onerror = () => {
-        throw new Error('Failed to read file');
-      };
+
+      await emailjs.send(
+        'service_z1dg0hz',
+        'template_5mryj7e',
+        templateParams,
+        '9eTKwirHBfUAS1VMX'
+      );
+
+      setReportSuccess(true);
     } catch (err: any) {
-      setError(err.message);
+      console.error('EmailJS Error:', err);
+      setError('Failed to send report. Please try again.');
+    } finally {
       setIsReporting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -242,8 +242,8 @@ If the logo is completely unrecognizable, provide a best guess or state that it 
             <h1 className="text-xl font-semibold tracking-tight text-neutral-900">BrandLens</h1>
           </div>
           <nav className="hidden sm:flex items-center gap-6 text-sm font-medium text-neutral-500">
-            <a href="#" className="hover:text-neutral-900 transition-colors">How it works</a>
-            <a href="#" className="hover:text-neutral-900 transition-colors">About</a>
+            <button onClick={() => setShowHowItWorks(true)} className="hover:text-neutral-900 transition-colors">How it works</button>
+            <button onClick={() => setShowAbout(true)} className="hover:text-neutral-900 transition-colors">About</button>
           </nav>
         </div>
       </header>
@@ -270,15 +270,6 @@ If the logo is completely unrecognizable, provide a best guess or state that it 
                   previewUrl ? 'border-indigo-200 bg-indigo-50/50' : 'border-neutral-300 hover:border-neutral-400 bg-neutral-50'
                 }`}
               >
-                {!isCameraActive && (
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileSelect}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                )}
-                
                 {isCameraActive ? (
                   <div className="space-y-4">
                     <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
@@ -538,6 +529,70 @@ If the logo is completely unrecognizable, provide a best guess or state that it 
           </div>
         </div>
       </main>
+
+      <footer className="bg-white border-t border-neutral-200 mt-auto">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-indigo-600" />
+            <span className="text-sm font-semibold text-neutral-900">BrandLens</span>
+          </div>
+          <p className="text-sm text-neutral-500">
+            &copy; {new Date().getFullYear()} BrandLens. All rights reserved.
+          </p>
+          <div className="flex items-center gap-4 text-sm text-neutral-500">
+            <a href="#" className="hover:text-neutral-900 transition-colors">Privacy</a>
+            <a href="#" className="hover:text-neutral-900 transition-colors">Terms</a>
+          </div>
+        </div>
+      </footer>
+
+      {/* Modals */}
+      {showHowItWorks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl relative"
+          >
+            <button
+              onClick={() => setShowHowItWorks(false)}
+              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-bold text-neutral-900 mb-4">How it works</h3>
+            <div className="space-y-4 text-neutral-600">
+              <p><strong>1. Upload or Scan:</strong> Take a photo of a logo or upload an existing image from your device.</p>
+              <p><strong>2. AI Analysis:</strong> Our advanced AI model analyzes the visual characteristics of the logo against a vast database of known brands.</p>
+              <p><strong>3. Review Results:</strong> Get detailed insights including the brand name, history, symbolic meaning, and an authenticity score.</p>
+              <p><strong>4. Report:</strong> If a logo appears suspicious or modified, you can report it directly to our team for further investigation.</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showAbout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl relative"
+          >
+            <button
+              onClick={() => setShowAbout(false)}
+              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-bold text-neutral-900 mb-4">About BrandLens</h3>
+            <div className="space-y-4 text-neutral-600">
+              <p>BrandLens is an AI-powered brand identification and authenticity verification tool.</p>
+              <p>In a world where counterfeit products and brand impersonation are increasingly common, BrandLens helps consumers and professionals quickly verify the authenticity of logos they encounter in the wild.</p>
+              <p>Built with React, Tailwind CSS, and Google's Gemini AI.</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
